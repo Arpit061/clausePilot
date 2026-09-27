@@ -1,5 +1,7 @@
+from collections.abc import Iterator
+
 from sqlalchemy import create_engine, text
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import settings
 
@@ -14,3 +16,17 @@ def check_database_connection() -> bool:
         return True
     except Exception:
         return False
+
+
+def init_db() -> None:
+    from app.db.models import Base
+
+    Base.metadata.create_all(bind=engine)
+
+
+def get_session() -> Iterator[Session]:
+    session = SessionLocal()
+    try:
+        yield session
+    finally:
+        session.close()

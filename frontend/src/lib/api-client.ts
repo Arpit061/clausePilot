@@ -16,18 +16,28 @@ type RequestOptions = Omit<RequestInit, 'body'> & {
 
 async function request<TResponse>(path: string, options: RequestOptions = {}): Promise<TResponse> {
   const { body, headers, ...rest } = options
+  const isFormData = body instanceof FormData
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...rest,
-    headers: {
-      'Content-Type': 'application/json',
-      ...headers,
-    },
-    body: body === undefined ? undefined : JSON.stringify(body),
+    headers: isFormData
+      ? headers
+      : {
+          'Content-Type': 'application/json',
+          ...headers,
+        },
+    body: body === undefined ? undefined : isFormData ? body : JSON.stringify(body),
   })
 
   if (!response.ok) {
-    throw new ApiError(response.status, `Request to ${path} failed with status ${response.status}`)
+    let detail: string | undefined
+    try {
+      const errorBody = await response.json()
+      detail = typeof errorBody?.detail === 'string' ? errorBody.detail : undefined
+    } catch {
+      // response had no JSON body
+    }
+    throw new ApiError(response.status, detail ?? `Request to ${path} failed with status ${response.status}`)
   }
 
   if (response.status === 204) {

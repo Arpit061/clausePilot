@@ -1,13 +1,24 @@
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import health
+from app.api.routes import documents, health
 from app.core.config import settings
 from app.core.logging import configure_logging
+from app.db.database import init_db
 
 configure_logging()
 
-app = FastAPI(title="ClausePilot API")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    init_db()
+    yield
+
+
+app = FastAPI(title="ClausePilot API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -18,3 +29,4 @@ app.add_middleware(
 )
 
 app.include_router(health.router)
+app.include_router(documents.router)
