@@ -60,5 +60,9 @@ def get_document(session: Session, document_id: str) -> Document | None:
 
 
 def get_document_with_pages(session: Session, document_id: str) -> Document | None:
-    stmt = select(Document).where(Document.id == document_id).options(selectinload(Document.pages))
+    stmt = (
+        select(Document)
+        .where(Document.id == document_id)
+        .options(selectinload(Document.pages), selectinload(Document.clauses))
+    )
     return session.execute(stmt).scalar_one_or_none()

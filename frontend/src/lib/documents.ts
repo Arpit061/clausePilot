@@ -18,8 +18,21 @@ export interface DocumentPage {
   char_count: number
 }
 
+export interface Clause {
+  id: string
+  parent_id: string | null
+  number: string
+  title: string | null
+  text: string
+  path: string
+  depth: number
+  page_number: number
+  order_index: number
+}
+
 export interface DocumentDetail extends DocumentSummary {
   pages: DocumentPage[]
+  clauses: Clause[]
 }
 
 interface DocumentListResponse {

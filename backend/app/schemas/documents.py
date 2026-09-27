@@ -3,6 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict
 
 from app.db.models import DocumentStatus
+from app.schemas.clauses import ClauseResponse
 
 
 class DocumentPageResponse(BaseModel):
@@ -27,6 +28,7 @@ class DocumentResponse(BaseModel):
 
 class DocumentDetailResponse(DocumentResponse):
     pages: list[DocumentPageResponse]
+    clauses: list[ClauseResponse]
 
 
 class DocumentListResponse(BaseModel):

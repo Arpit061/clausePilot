@@ -4,6 +4,7 @@ import { NavLink, Outlet } from 'react-router-dom'
 const navItems = [
   { to: '/', label: 'Workspace' },
   { to: '/documents', label: 'Documents' },
+  { to: '/search', label: 'Search' },
 ]
 
 export function AppLayout() {

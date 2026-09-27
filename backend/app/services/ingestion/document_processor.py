@@ -2,7 +2,9 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db.models import Document
+from app.db.repositories.clauses import add_clauses
 from app.db.repositories.documents import add_pages, create_document, mark_failed, mark_ready
+from app.services.ingestion.clause_extractor import extract_clauses
 from app.services.ingestion.pdf_parser import PdfParseError, extract_pages
 from app.utils.files import build_stored_path, sanitize_filename, write_upload
 
@@ -42,5 +44,10 @@ def process_upload(session: Session, *, filename: str, content_type: str, conten
         return document
 
     add_pages(session, document, pages)
+
+    clauses = extract_clauses(pages)
+    if clauses:
+        add_clauses(session, document, clauses)
+
     mark_ready(session, document)
     return document

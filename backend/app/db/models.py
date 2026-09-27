@@ -34,6 +34,9 @@ class Document(Base):
     pages: Mapped[list["DocumentPage"]] = relationship(
         back_populates="document", cascade="all, delete-orphan", order_by="DocumentPage.page_number"
     )
+    clauses: Mapped[list["Clause"]] = relationship(
+        back_populates="document", cascade="all, delete-orphan", order_by="Clause.order_index"
+    )
 
 
 class DocumentPage(Base):
@@ -46,3 +49,22 @@ class DocumentPage(Base):
     char_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     document: Mapped[Document] = relationship(back_populates="pages")
+
+
+class Clause(Base):
+    __tablename__ = "clauses"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    document_id: Mapped[str] = mapped_column(ForeignKey("documents.id"), index=True, nullable=False)
+    parent_id: Mapped[str | None] = mapped_column(ForeignKey("clauses.id"), index=True, nullable=True)
+    number: Mapped[str] = mapped_column(String(50), nullable=False)
+    title: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    text: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    path: Mapped[str] = mapped_column(String(1000), nullable=False)
+    depth: Mapped[int] = mapped_column(Integer, nullable=False)
+    page_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    order_index: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    document: Mapped[Document] = relationship(back_populates="clauses")
+    parent: Mapped["Clause | None"] = relationship(remote_side="Clause.id", back_populates="children")
+    children: Mapped[list["Clause"]] = relationship(back_populates="parent")

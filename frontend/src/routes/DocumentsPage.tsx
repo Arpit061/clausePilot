@@ -1,11 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CheckCircle2, FileText, Loader2, UploadCloud, XCircle } from 'lucide-react'
+import { AlertCircle, CheckCircle2, FileText, Loader2, UploadCloud, XCircle } from 'lucide-react'
 import { useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { ApiError } from '@/lib/api-client'
-import { type DocumentStatus, listDocuments, uploadDocument } from '@/lib/documents'
+import {
+  type DocumentStatus,
+  type DocumentSummary,
+  getDocument,
+  listDocuments,
+  uploadDocument,
+} from '@/lib/documents'
 
 const statusMeta: Record<DocumentStatus, { label: string; icon: typeof CheckCircle2; className: string }> = {
   ready: { label: 'Ready', icon: CheckCircle2, className: 'text-emerald-600 dark:text-emerald-400' },
@@ -13,12 +20,76 @@ const statusMeta: Record<DocumentStatus, { label: string; icon: typeof CheckCirc
   failed: { label: 'Failed', icon: XCircle, className: 'text-destructive' },
 }
 
+function formatDate(iso: string) {
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(new Date(iso))
+}
+
+function ClauseCount({ documentId }: { documentId: string }) {
+  const { data, isPending } = useQuery({
+    queryKey: ['documents', documentId],
+    queryFn: () => getDocument(documentId),
+    staleTime: 60_000,
+  })
+
+  if (isPending) {
+    return <span className="text-muted-foreground">…</span>
+  }
+  return <span>{data?.clauses.length ?? '—'}</span>
+}
+
+function DocumentRow({ doc }: { doc: DocumentSummary }) {
+  const meta = statusMeta[doc.status]
+
+  return (
+    <tr className="border-b border-border last:border-0">
+      <td className="px-4 py-3">
+        <div className="flex items-center gap-2">
+          <FileText className="size-4 shrink-0 text-muted-foreground" />
+          <span className="truncate font-medium">{doc.filename}</span>
+        </div>
+        {doc.status === 'failed' && doc.error_message && (
+          <p className="mt-1 text-xs text-destructive">{doc.error_message}</p>
+        )}
+      </td>
+      <td className="px-3 py-3 text-muted-foreground">{doc.page_count}</td>
+      <td className="px-3 py-3 text-muted-foreground">
+        {doc.status === 'ready' ? <ClauseCount documentId={doc.id} /> : '—'}
+      </td>
+      <td className="px-3 py-3">
+        <span className={`flex items-center gap-1.5 ${meta.className}`}>
+          <meta.icon className={`size-3.5 ${doc.status === 'processing' ? 'animate-spin' : ''}`} />
+          {meta.label}
+        </span>
+      </td>
+      <td className="px-3 py-3 whitespace-nowrap text-muted-foreground">{formatDate(doc.created_at)}</td>
+      <td className="px-4 py-3 text-right">
+        {doc.status === 'ready' ? (
+          <Button asChild variant="outline" size="sm">
+            <Link to={`/documents/${doc.id}`}>Open</Link>
+          </Button>
+        ) : (
+          <Button variant="outline" size="sm" disabled>
+            Open
+          </Button>
+        )}
+      </td>
+    </tr>
+  )
+}
+
 export function DocumentsPage() {
   const queryClient = useQueryClient()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [uploadError, setUploadError] = useState<string | null>(null)
 
-  const { data: documents, isPending } = useQuery({
+  const {
+    data: documents,
+    isPending,
+    isError,
+  } = useQuery({
     queryKey: ['documents'],
     queryFn: listDocuments,
   })
@@ -44,11 +115,11 @@ export function DocumentsPage() {
 
   return (
     <div className="flex flex-col gap-8">
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Documents</h1>
-          <p className="mt-1 text-muted-foreground">
-            Upload an engineering standard (PDF) to extract its pages for search.
+          <h1 className="text-2xl font-semibold tracking-tight">Engineering Standards</h1>
+          <p className="mt-1 max-w-2xl text-muted-foreground">
+            Upload engineering standard documents to extract their clauses and sections for review.
           </p>
         </div>
         <div>
@@ -59,7 +130,7 @@ export function DocumentsPage() {
             className="hidden"
             onChange={handleFileChange}
           />
-          <Button onClick={() => fileInputRef.current?.click()} disabled={upload.isPending}>
+          <Button onClick={() => fileInputRef.current?.click()} disabled={upload.isPending} size="lg">
             {upload.isPending ? <Loader2 className="animate-spin" /> : <UploadCloud />}
             {upload.isPending ? 'Uploading…' : 'Upload PDF'}
           </Button>
@@ -67,14 +138,27 @@ export function DocumentsPage() {
       </div>
 
       {uploadError && (
-        <p className="text-sm text-destructive" role="alert">
+        <p className="flex items-center gap-2 text-sm text-destructive" role="alert">
+          <AlertCircle className="size-4" />
           {uploadError}
         </p>
       )}
 
-      {isPending && <p className="text-sm text-muted-foreground">Loading documents…</p>}
+      {isPending && (
+        <p className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="size-4 animate-spin" />
+          Loading documents…
+        </p>
+      )}
 
-      {!isPending && documents?.length === 0 && (
+      {isError && (
+        <p className="flex items-center gap-2 text-sm text-destructive" role="alert">
+          <AlertCircle className="size-4" />
+          Could not load documents. Is the backend running?
+        </p>
+      )}
+
+      {!isPending && !isError && documents?.length === 0 && (
         <Card className="max-w-sm">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
@@ -87,32 +171,25 @@ export function DocumentsPage() {
         </Card>
       )}
 
-      {documents && documents.length > 0 && (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {documents.map((doc) => {
-            const meta = statusMeta[doc.status]
-            return (
-              <Card key={doc.id}>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <FileText className="size-4 shrink-0" />
-                    <span className="truncate">{doc.filename}</span>
-                  </CardTitle>
-                  <CardDescription className="flex items-center gap-1.5">
-                    <meta.icon className={`size-3.5 ${meta.className}`} />
-                    <span className={meta.className}>{meta.label}</span>
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="text-sm text-muted-foreground">
-                  {doc.status === 'failed' ? (
-                    <span className="text-destructive">{doc.error_message}</span>
-                  ) : (
-                    <span>{doc.page_count} page{doc.page_count === 1 ? '' : 's'}</span>
-                  )}
-                </CardContent>
-              </Card>
-            )
-          })}
+      {!isPending && !isError && documents && documents.length > 0 && (
+        <div className="overflow-x-auto rounded-xl ring-1 ring-foreground/10">
+          <table className="w-full text-left text-sm">
+            <thead>
+              <tr className="border-b border-border text-xs text-muted-foreground">
+                <th className="px-4 py-2.5 font-medium">Filename</th>
+                <th className="px-3 py-2.5 font-medium">Pages</th>
+                <th className="px-3 py-2.5 font-medium">Clauses</th>
+                <th className="px-3 py-2.5 font-medium">Status</th>
+                <th className="px-3 py-2.5 font-medium">Uploaded</th>
+                <th className="px-4 py-2.5" />
+              </tr>
+            </thead>
+            <tbody>
+              {documents.map((doc) => (
+                <DocumentRow key={doc.id} doc={doc} />
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>
