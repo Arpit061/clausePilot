@@ -21,6 +21,9 @@ def check_database_connection() -> bool:
 def init_db() -> None:
     from app.db.models import Base
 
+    with engine.begin() as connection:
+        connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+
     Base.metadata.create_all(bind=engine)
 
 

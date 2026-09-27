@@ -8,10 +8,10 @@ services:
     depends_on:
       - db
 
-  # Plain PostgreSQL for the foundation milestone. pgvector will be added
-  # in the retrieval milestone once the vector search design is settled.
+  # PostgreSQL with the pgvector extension pre-installed, used for clause
+  # embeddings / semantic search.
   db:
-    image: postgres:16
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres

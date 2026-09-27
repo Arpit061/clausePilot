@@ -60,6 +60,23 @@ cd backend
 pytest
 ```
 
+## Semantic Search (Embeddings + pgvector)
+
+- The `db` service in `docker-compose.yml` uses the `pgvector/pgvector:pg16` image. The backend enables the extension itself (`CREATE EXTENSION IF NOT EXISTS vector`) on startup, so no manual SQL is required.
+- Embedding generation is configured entirely through environment variables — see `.env.example`: `EMBEDDING_PROVIDER` (`fake` by default, `openai` for real embeddings), `EMBEDDING_MODEL`, `EMBEDDING_API_KEY`, and `EMBEDDING_DIMENSION` (must match the model's real output size).
+- With the default `fake` provider, everything works out of the box with no API key — useful for local dev and CI. Switch to `openai` and set `EMBEDDING_API_KEY` for real semantic search.
+- When a document is processed, each extracted clause is embedded and stored alongside it. If embedding generation fails, the document is marked `failed` with an error message — its pages and clauses stay intact, only the embedding step is incomplete.
+- To backfill embeddings for clauses that don't have one yet (e.g. after switching providers, or clauses from a failed embedding run), run:
+
+  ```bash
+  cd backend
+  .venv\Scripts\activate
+  python ../scripts/backfill_embeddings.py               # all documents
+  python ../scripts/backfill_embeddings.py --document-id <id>  # one document
+  ```
+
+  This is idempotent and only fills in missing embeddings — it never re-processes a document or touches clauses that already have one, and it does not run automatically on every startup.
+
 ## Running the Frontend
 
 Requires Node.js 20+.

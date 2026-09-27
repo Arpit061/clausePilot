@@ -2,10 +2,11 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db.models import Document
-from app.db.repositories.clauses import add_clauses
+from app.db.repositories.clauses import add_clauses, set_clause_embeddings
 from app.db.repositories.documents import add_pages, create_document, mark_failed, mark_ready
 from app.services.ingestion.clause_extractor import extract_clauses
 from app.services.ingestion.pdf_parser import PdfParseError, extract_pages
+from app.services.llm.embeddings import EmbeddingProviderError, build_embedding_text, get_embedding_provider
 from app.utils.files import build_stored_path, sanitize_filename, write_upload
 
 
@@ -45,9 +46,25 @@ def process_upload(session: Session, *, filename: str, content_type: str, conten
 
     add_pages(session, document, pages)
 
-    clauses = extract_clauses(pages)
-    if clauses:
-        add_clauses(session, document, clauses)
+    extracted = extract_clauses(pages)
+    persisted_clauses = add_clauses(session, document, extracted) if extracted else []
+
+    if persisted_clauses:
+        try:
+            provider = get_embedding_provider()
+            texts = [
+                build_embedding_text(number=clause.number, title=clause.title, text=clause.text)
+                for clause in persisted_clauses
+            ]
+            vectors = provider.embed(texts)
+            set_clause_embeddings(session, persisted_clauses, vectors)
+        except EmbeddingProviderError as exc:
+            # Pages and clauses are already committed and remain intact; only
+            # the document's status reflects that semantic search isn't
+            # available for it yet. A backfill can retry embedding generation
+            # later without touching or re-extracting anything.
+            mark_failed(session, document, f"Embedding generation failed: {exc}")
+            return document
 
     mark_ready(session, document)
     return document

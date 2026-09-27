@@ -38,3 +38,16 @@ def add_clauses(session: Session, document: Document, extracted_clauses: list[Ex
 def list_clauses_for_document(session: Session, document_id: str) -> list[Clause]:
     stmt = select(Clause).where(Clause.document_id == document_id).order_by(Clause.order_index)
     return list(session.execute(stmt).scalars())
+
+
+def set_clause_embeddings(session: Session, clauses: list[Clause], vectors: list[list[float]]) -> None:
+    for clause, vector in zip(clauses, vectors, strict=True):
+        clause.embedding = vector
+    session.commit()
+
+
+def list_clauses_missing_embeddings(session: Session, document_id: str | None = None) -> list[Clause]:
+    stmt = select(Clause).where(Clause.embedding.is_(None)).order_by(Clause.document_id, Clause.order_index)
+    if document_id:
+        stmt = stmt.where(Clause.document_id == document_id)
+    return list(session.execute(stmt).scalars())

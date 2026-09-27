@@ -2,8 +2,11 @@ import enum
 import uuid
 from datetime import datetime, timezone
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+from app.core.config import settings
 
 
 class Base(DeclarativeBase):
@@ -64,6 +67,7 @@ class Clause(Base):
     depth: Mapped[int] = mapped_column(Integer, nullable=False)
     page_number: Mapped[int] = mapped_column(Integer, nullable=False)
     order_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(settings.EMBEDDING_DIMENSION), nullable=True)
 
     document: Mapped[Document] = relationship(back_populates="clauses")
     parent: Mapped["Clause | None"] = relationship(remote_side="Clause.id", back_populates="children")

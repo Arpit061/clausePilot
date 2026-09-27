@@ -1,7 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { AlertCircle, CheckCircle2, FileText, Loader2, XCircle } from 'lucide-react'
-import { useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
@@ -48,7 +47,7 @@ function ClauseNavItem({
 
 export function DocumentDetailPage() {
   const { id } = useParams<{ id: string }>()
-  const [selectedClauseId, setSelectedClauseId] = useState<string | null>(null)
+  const [searchParams, setSearchParams] = useSearchParams()
 
   const {
     data: doc,
@@ -85,7 +84,24 @@ export function DocumentDetailPage() {
 
   const meta = statusMeta[doc.status]
   const clauses = [...doc.clauses].sort((a, b) => a.order_index - b.order_index)
-  const selectedClause = clauses.find((c) => c.id === selectedClauseId) ?? null
+
+  // The URL's `clause` query param is the single source of truth for the
+  // selection, so it stays in sync with browser back/forward automatically.
+  // An id that doesn't belong to this document (or no param at all) simply
+  // falls back to "nothing selected" rather than crashing.
+  const clauseIdParam = searchParams.get('clause')
+  const selectedClause = clauses.find((c) => c.id === clauseIdParam) ?? null
+
+  function selectClause(clauseId: string) {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        next.set('clause', clauseId)
+        return next
+      },
+      { replace: false }
+    )
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -138,13 +154,16 @@ export function DocumentDetailPage() {
             aria-label="Clause navigation"
             className="min-w-0 rounded-xl ring-1 ring-foreground/10 md:sticky md:top-20 md:max-h-[calc(100vh-11rem)] md:overflow-y-auto"
           >
+            <h2 className="border-b border-border px-3 py-2.5 text-xs font-medium tracking-wide text-muted-foreground uppercase">
+              Clauses
+            </h2>
             <div className="flex flex-col gap-0.5 p-2">
               {clauses.map((clause) => (
                 <ClauseNavItem
                   key={clause.id}
                   clause={clause}
-                  isSelected={clause.id === selectedClauseId}
-                  onSelect={() => setSelectedClauseId(clause.id)}
+                  isSelected={clause.id === selectedClause?.id}
+                  onSelect={() => selectClause(clause.id)}
                 />
               ))}
             </div>
