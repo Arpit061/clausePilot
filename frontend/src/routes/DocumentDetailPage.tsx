@@ -1,96 +1,64 @@
-import { useQuery } from '@tanstack/react-query'
-import { AlertCircle, CheckCircle2, FileText, Loader2, XCircle } from 'lucide-react'
+import { ArrowLeft, FileText, Layers } from 'lucide-react'
+import { useMemo, useRef, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 
+import { ClauseTree } from '@/components/documents/clause-tree'
+import { ClauseViewer } from '@/components/documents/clause-viewer'
+import { EmptyState } from '@/components/common/empty-state'
+import { ErrorState } from '@/components/common/error-state'
+import { StatusBadge } from '@/components/common/status-badge'
+import { RowsSkeleton, Skeleton } from '@/components/common/skeleton'
 import { Button } from '@/components/ui/button'
-import { Separator } from '@/components/ui/separator'
-import { type Clause, type DocumentStatus, getDocument } from '@/lib/documents'
+import { useDocumentQuery } from '@/hooks/use-documents'
+import { ApiError, describeError } from '@/lib/api-client'
+import { ancestorIds, buildClauseTree } from '@/lib/clause-tree'
+import { formatCount, formatDate } from '@/lib/format'
 
-const statusMeta: Record<DocumentStatus, { label: string; icon: typeof CheckCircle2; className: string }> = {
-  ready: { label: 'Ready', icon: CheckCircle2, className: 'text-emerald-600 dark:text-emerald-400' },
-  processing: { label: 'Processing', icon: Loader2, className: 'text-muted-foreground' },
-  failed: { label: 'Failed', icon: XCircle, className: 'text-destructive' },
-}
+const MOBILE_QUERY = '(max-width: 1023px)'
 
-function formatDate(iso: string) {
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(new Date(iso))
-}
-
-function ClauseNavItem({
-  clause,
-  isSelected,
-  onSelect,
-}: {
-  clause: Clause
-  isSelected: boolean
-  onSelect: () => void
-}) {
+function DetailSkeleton() {
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      style={{ paddingLeft: `${(clause.depth - 1) * 14 + 12}px` }}
-      className={`flex w-full items-baseline gap-2 rounded-md py-1.5 pr-3 text-left text-sm transition-colors ${
-        isSelected
-          ? 'bg-primary/10 text-foreground font-medium'
-          : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-      }`}
-    >
-      <span className="shrink-0 font-mono text-xs">{clause.number}</span>
-      <span className="truncate">{clause.title ?? '(untitled)'}</span>
-    </button>
+    <div className="flex flex-col gap-6" role="status" aria-label="Loading standard">
+      <div className="flex flex-col gap-3">
+        <Skeleton className="h-4 w-28" />
+        <Skeleton className="h-7 w-2/3" />
+        <Skeleton className="h-4 w-1/2" />
+      </div>
+      <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
+        <div className="rounded-lg border border-border p-3">
+          <RowsSkeleton rows={6} />
+        </div>
+        <Skeleton className="h-64 w-full" />
+      </div>
+    </div>
   )
 }
 
 export function DocumentDetailPage() {
   const { id } = useParams<{ id: string }>()
   const [searchParams, setSearchParams] = useSearchParams()
+  const { data: doc, isPending, isError, error, refetch, isRefetching } = useDocumentQuery(id)
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() => new Set())
+  const viewerRef = useRef<HTMLDivElement>(null)
 
-  const {
-    data: doc,
-    isPending,
-    isError,
-  } = useQuery({
-    queryKey: ['documents', id],
-    queryFn: () => getDocument(id!),
-    enabled: Boolean(id),
-  })
+  const clauses = useMemo(
+    () => (doc ? [...doc.clauses].sort((a, b) => a.order_index - b.order_index) : []),
+    [doc]
+  )
+  const tree = useMemo(() => buildClauseTree(clauses), [clauses])
 
-  if (isPending) {
-    return (
-      <p className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Loader2 className="size-4 animate-spin" />
-        Loading document…
-      </p>
-    )
-  }
+  // The `clause` query param is the single source of truth for selection, so
+  // browser back/forward and deep links work without extra state.
+  const selectedId = searchParams.get('clause')
+  const selectedIndex = clauses.findIndex((clause) => clause.id === selectedId)
+  const selected = selectedIndex >= 0 ? clauses[selectedIndex] : null
 
-  if (isError || !doc) {
-    return (
-      <div className="flex flex-col gap-4">
-        <p className="flex items-center gap-2 text-sm text-destructive" role="alert">
-          <AlertCircle className="size-4" />
-          Could not load this document.
-        </p>
-        <Button asChild variant="outline" size="sm" className="w-fit">
-          <Link to="/documents">Back to documents</Link>
-        </Button>
-      </div>
-    )
-  }
-
-  const meta = statusMeta[doc.status]
-  const clauses = [...doc.clauses].sort((a, b) => a.order_index - b.order_index)
-
-  // The URL's `clause` query param is the single source of truth for the
-  // selection, so it stays in sync with browser back/forward automatically.
-  // An id that doesn't belong to this document (or no param at all) simply
-  // falls back to "nothing selected" rather than crashing.
-  const clauseIdParam = searchParams.get('clause')
-  const selectedClause = clauses.find((c) => c.id === clauseIdParam) ?? null
+  // A deep-linked clause must be visible in the tree, so its ancestors are
+  // expanded regardless of any earlier manual collapse.
+  const expandedAncestors = selected ? new Set(ancestorIds(selected.id, clauses)) : null
+  const effectiveCollapsed = expandedAncestors
+    ? new Set([...collapsedIds].filter((clauseId) => !expandedAncestors.has(clauseId)))
+    : collapsedIds
 
   function selectClause(clauseId: string) {
     setSearchParams(
@@ -101,93 +69,147 @@ export function DocumentDetailPage() {
       },
       { replace: false }
     )
+    // On narrow screens the tree sits above the viewer, so bring the content into view.
+    if (window.matchMedia(MOBILE_QUERY).matches) {
+      viewerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }
+
+  function toggleClause(clauseId: string) {
+    setCollapsedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(clauseId)) {
+        next.delete(clauseId)
+      } else {
+        next.add(clauseId)
+      }
+      return next
+    })
+  }
+
+  const backLink = (
+    <Button asChild variant="ghost" size="sm" className="-ml-2 w-fit">
+      <Link to="/documents">
+        <ArrowLeft />
+        Back to standards
+      </Link>
+    </Button>
+  )
+
+  if (isPending) {
+    return (
+      <div className="flex flex-col gap-6">
+        {backLink}
+        <DetailSkeleton />
+      </div>
+    )
+  }
+
+  if (isError || !doc) {
+    const notFound = error instanceof ApiError && error.status === 404
+    return (
+      <div className="flex flex-col gap-6">
+        {backLink}
+        {notFound ? (
+          <EmptyState
+            icon={FileText}
+            title="Standard not found"
+            description="This standard may have been removed. Return to the library to choose another."
+          />
+        ) : (
+          <ErrorState
+            message={describeError(error, 'Could not load this standard.')}
+            onRetry={() => refetch()}
+            isRetrying={isRefetching}
+          />
+        )}
+      </div>
+    )
   }
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <Button asChild variant="ghost" size="sm" className="mb-3 -ml-2">
-          <Link to="/documents">← Back to documents</Link>
-        </Button>
+      <div className="flex flex-col gap-4">
+        {backLink}
 
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <FileText className="size-5 shrink-0 text-muted-foreground" />
-            <h1 className="text-xl font-semibold tracking-tight break-all">{doc.filename}</h1>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex min-w-0 items-start gap-3">
+            <FileText className="mt-1 size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <h1 className="text-xl font-semibold tracking-tight wrap-break-word sm:text-2xl">{doc.filename}</h1>
           </div>
-          <span className={`flex items-center gap-1.5 text-sm ${meta.className}`}>
-            <meta.icon className={`size-4 ${doc.status === 'processing' ? 'animate-spin' : ''}`} />
-            {meta.label}
-          </span>
+          <StatusBadge status={doc.status} />
         </div>
 
-        <dl className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted-foreground">
+        <dl className="flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted-foreground">
           <div className="flex gap-1.5">
-            <dt>Pages:</dt>
-            <dd>{doc.page_count}</dd>
+            <dt>Pages</dt>
+            <dd className="font-medium text-foreground tabular-nums">{doc.page_count}</dd>
           </div>
           <div className="flex gap-1.5">
-            <dt>Clauses:</dt>
-            <dd>{clauses.length}</dd>
+            <dt>Clauses</dt>
+            <dd className="font-medium text-foreground tabular-nums">{clauses.length}</dd>
           </div>
           <div className="flex gap-1.5">
-            <dt>Uploaded:</dt>
-            <dd>{formatDate(doc.created_at)}</dd>
+            <dt>Uploaded</dt>
+            <dd className="text-foreground">{formatDate(doc.created_at)}</dd>
           </div>
         </dl>
 
-        {doc.status === 'failed' && doc.error_message && (
-          <p className="mt-2 flex items-center gap-2 text-sm text-destructive">
-            <AlertCircle className="size-4" />
-            {doc.error_message}
-          </p>
+        {doc.status === 'failed' && (
+          <ErrorState message={doc.error_message ?? 'Processing failed for this standard.'} />
         )}
       </div>
 
-      <Separator />
+      {doc.status === 'processing' && (
+        <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/40 p-4 text-sm text-muted-foreground">
+          <Layers className="size-4 shrink-0" aria-hidden="true" />
+          This standard is still being processed. Clauses will appear here when processing completes.
+        </div>
+      )}
 
-      {clauses.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No clauses were detected in this document.</p>
-      ) : (
-        <div className="grid gap-6 md:grid-cols-[280px_1fr]">
-          <nav
+      {doc.status === 'ready' && clauses.length === 0 && (
+        <EmptyState
+          icon={Layers}
+          title="No clauses were detected"
+          description="The standard was processed, but no numbered clauses were found in its text."
+        />
+      )}
+
+      {clauses.length > 0 && (
+        <div className="grid gap-6 lg:grid-cols-[320px_1fr] lg:items-start">
+          <section
             aria-label="Clause navigation"
-            className="min-w-0 rounded-xl ring-1 ring-foreground/10 md:sticky md:top-20 md:max-h-[calc(100vh-11rem)] md:overflow-y-auto"
+            className="min-w-0 rounded-lg border border-border lg:sticky lg:top-20 lg:max-h-[calc(100svh-6rem)] lg:overflow-y-auto"
           >
-            <h2 className="border-b border-border px-3 py-2.5 text-xs font-medium tracking-wide text-muted-foreground uppercase">
+            <h2 className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-background px-3 py-2.5 text-xs font-medium tracking-wide text-muted-foreground uppercase">
               Clauses
+              <span className="font-normal tabular-nums normal-case">{formatCount(clauses.length, 'clause')}</span>
             </h2>
-            <div className="flex flex-col gap-0.5 p-2">
-              {clauses.map((clause) => (
-                <ClauseNavItem
-                  key={clause.id}
-                  clause={clause}
-                  isSelected={clause.id === selectedClause?.id}
-                  onSelect={() => selectClause(clause.id)}
-                />
-              ))}
+            <div className="p-2">
+              <ClauseTree
+                nodes={tree}
+                selectedId={selected?.id ?? null}
+                collapsedIds={effectiveCollapsed}
+                onToggle={toggleClause}
+                onSelect={selectClause}
+              />
             </div>
-          </nav>
+          </section>
 
-          <div className="min-w-0 rounded-xl p-4 ring-1 ring-foreground/10">
-            {selectedClause ? (
-              <div className="flex flex-col gap-3">
-                <div>
-                  <p className="font-mono text-xs text-muted-foreground">{selectedClause.path}</p>
-                  <h2 className="mt-1 flex flex-wrap items-baseline gap-2 text-lg font-semibold">
-                    <span className="font-mono text-base text-muted-foreground">{selectedClause.number}</span>
-                    <span>{selectedClause.title ?? '(untitled clause)'}</span>
-                  </h2>
-                  <p className="mt-1 text-xs text-muted-foreground">Page {selectedClause.page_number}</p>
-                </div>
-                <Separator />
-                <p className="whitespace-pre-wrap text-sm leading-relaxed">
-                  {selectedClause.text || 'This clause has no body text.'}
-                </p>
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">Select a clause from the list to view its content.</p>
+          <div ref={viewerRef} className="min-w-0 scroll-mt-20 rounded-lg border border-border p-5 sm:p-6">
+            {selectedId && !selected && (
+              <p className="mb-4 text-sm text-destructive" role="alert">
+                That clause is not part of this standard. Select one from the tree.
+              </p>
             )}
+            <ClauseViewer
+              documentName={doc.filename}
+              pageCount={doc.page_count}
+              clause={selected}
+              previous={selectedIndex > 0 ? clauses[selectedIndex - 1] : null}
+              next={selectedIndex >= 0 && selectedIndex < clauses.length - 1 ? clauses[selectedIndex + 1] : null}
+              onNavigate={selectClause}
+            />
           </div>
         </div>
       )}

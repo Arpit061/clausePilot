@@ -1,40 +1,23 @@
-import { FileText } from 'lucide-react'
-import { NavLink, Outlet } from 'react-router-dom'
+import { useCallback, useState } from 'react'
+import { Outlet } from 'react-router-dom'
 
-const navItems = [
-  { to: '/', label: 'Workspace' },
-  { to: '/documents', label: 'Documents' },
-  { to: '/search', label: 'Search' },
-]
+import { AppSidebar } from '@/components/layout/app-sidebar'
+import { TopBar } from '@/components/layout/top-bar'
 
 export function AppLayout() {
+  const [navOpen, setNavOpen] = useState(false)
+  const closeNav = useCallback(() => setNavOpen(false), [])
+
   return (
-    <div className="flex min-h-svh flex-col bg-background text-foreground">
-      <header className="border-b border-border">
-        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
-          <div className="flex items-center gap-2 font-semibold">
-            <FileText className="size-5" />
-            <span>ClausePilot</span>
-          </div>
-          <nav className="flex items-center gap-4 text-sm">
-            {navItems.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end={item.to === '/'}
-                className={({ isActive }) =>
-                  isActive ? 'font-medium text-foreground' : 'text-muted-foreground hover:text-foreground'
-                }
-              >
-                {item.label}
-              </NavLink>
-            ))}
-          </nav>
-        </div>
-      </header>
-      <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-10">
-        <Outlet />
-      </main>
+    <div className="flex min-h-svh bg-background text-foreground">
+      <AppSidebar open={navOpen} onClose={closeNav} />
+
+      <div className="flex min-w-0 flex-1 flex-col">
+        <TopBar onOpenNav={() => setNavOpen(true)} />
+        <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8 sm:px-6 lg:px-8">
+          <Outlet />
+        </main>
+      </div>
     </div>
   )
 }

@@ -1,254 +1,177 @@
-import { useQueries, useQuery } from '@tanstack/react-query'
-import {
-  AlertCircle,
-  CheckCircle2,
-  FileSearch,
-  FileText,
-  FolderOpen,
-  Layers,
-  Loader2,
-  UploadCloud,
-  XCircle,
-} from 'lucide-react'
+import { BookOpen, CheckCircle2, FileSearch, FileText, Layers, Loader2, UploadCloud } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
+import { ErrorState } from '@/components/common/error-state'
+import { PageHeader } from '@/components/common/page-header'
+import { StatCard } from '@/components/common/stat-card'
+import { Skeleton } from '@/components/common/skeleton'
+import { StatusBadge } from '@/components/common/status-badge'
+import { UploadStandardButton } from '@/components/documents/upload-standard-button'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Separator } from '@/components/ui/separator'
-import { type DocumentStatus, type DocumentSummary, getDocument, listDocuments } from '@/lib/documents'
+import { useClauseCounts, useDocumentsQuery } from '@/hooks/use-documents'
+import { describeError } from '@/lib/api-client'
+import type { DocumentSummary } from '@/lib/documents'
+import { formatDate } from '@/lib/format'
 
 const RECENT_LIMIT = 5
 
-const statusMeta: Record<DocumentStatus, { label: string; icon: typeof CheckCircle2; className: string }> = {
-  ready: { label: 'Ready', icon: CheckCircle2, className: 'text-emerald-600 dark:text-emerald-400' },
-  processing: { label: 'Processing', icon: Loader2, className: 'text-muted-foreground' },
-  failed: { label: 'Failed', icon: XCircle, className: 'text-destructive' },
-}
-
-function formatDate(iso: string) {
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(iso))
-}
-
-function useTotalClauseCount(documents: DocumentSummary[]) {
-  const readyDocs = documents.filter((doc) => doc.status === 'ready')
-
-  const results = useQueries({
-    queries: readyDocs.map((doc) => ({
-      queryKey: ['documents', doc.id],
-      queryFn: () => getDocument(doc.id),
-      staleTime: 60_000,
-    })),
-  })
-
-  const isLoading = results.some((result) => result.isPending)
-  const total = results.reduce((sum, result) => sum + (result.data?.clauses.length ?? 0), 0)
-
-  return { total, isLoading, hasReadyDocs: readyDocs.length > 0 }
-}
-
-function SummaryCard({
-  icon: Icon,
-  label,
-  value,
-}: {
-  icon: typeof Layers
-  label: string
-  value: string
-}) {
+function RecentStandardRow({ doc, clauseCount }: { doc: DocumentSummary; clauseCount: number | undefined }) {
   return (
-    <Card>
-      <CardContent className="flex items-center gap-3 py-2">
-        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted">
-          <Icon className="size-4 text-muted-foreground" />
-        </div>
-        <div>
-          <p className="text-xl font-semibold tracking-tight">{value}</p>
-          <p className="text-xs text-muted-foreground">{label}</p>
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-function RecentDocumentRow({ doc }: { doc: DocumentSummary }) {
-  const meta = statusMeta[doc.status]
-
-  return (
-    <div className="flex items-center justify-between gap-4 py-3">
-      <div className="flex min-w-0 items-center gap-2">
-        <FileText className="size-4 shrink-0 text-muted-foreground" />
+    <li className="flex items-center justify-between gap-4 px-4 py-3">
+      <div className="flex min-w-0 items-start gap-2.5">
+        <FileText className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
         <div className="min-w-0">
           <p className="truncate text-sm font-medium">{doc.filename}</p>
-          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <span>{doc.page_count} pages</span>
+          <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+            <span className="tabular-nums">{doc.page_count} pages</span>
             <span aria-hidden="true">·</span>
-            <span className={`flex items-center gap-1 ${meta.className}`}>
-              <meta.icon className={`size-3 ${doc.status === 'processing' ? 'animate-spin' : ''}`} />
-              {meta.label}
-            </span>
+            <span className="tabular-nums">{doc.status === 'ready' ? `${clauseCount ?? '—'} clauses` : '— clauses'}</span>
             <span aria-hidden="true">·</span>
             <span>{formatDate(doc.created_at)}</span>
           </p>
         </div>
       </div>
-      {doc.status === 'ready' ? (
-        <Button asChild variant="outline" size="sm" className="shrink-0">
-          <Link to={`/documents/${doc.id}`}>Open</Link>
-        </Button>
-      ) : (
-        <Button variant="outline" size="sm" className="shrink-0" disabled>
-          Open
-        </Button>
-      )}
-    </div>
+      <div className="flex shrink-0 items-center gap-3">
+        <StatusBadge status={doc.status} className="hidden sm:inline-flex" />
+        {doc.status === 'ready' ? (
+          <Button asChild variant="outline" size="sm">
+            <Link to={`/documents/${doc.id}`}>Open</Link>
+          </Button>
+        ) : (
+          <Button variant="outline" size="sm" disabled>
+            Open
+          </Button>
+        )}
+      </div>
+    </li>
+  )
+}
+
+function QuickAction({ to, icon: Icon, title, description }: { to: string; icon: typeof FileText; title: string; description: string }) {
+  return (
+    <Link
+      to={to}
+      className="group flex items-start gap-3 rounded-lg border border-border bg-card p-4 transition-colors outline-none hover:border-foreground/20 hover:bg-muted/40 focus-visible:ring-3 focus-visible:ring-ring/50"
+    >
+      <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted">
+        <Icon className="size-4 text-muted-foreground group-hover:text-foreground" aria-hidden="true" />
+      </div>
+      <div>
+        <p className="text-sm font-medium">{title}</p>
+        <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
+      </div>
+    </Link>
   )
 }
 
 export function WorkspacePage() {
-  const {
-    data: documents,
-    isPending,
-    isError,
-  } = useQuery({
-    queryKey: ['documents'],
-    queryFn: listDocuments,
-  })
+  const { data: documents, isPending, isError, error, refetch, isRefetching } = useDocumentsQuery()
+  const { counts, total, isPending: countsPending } = useClauseCounts(documents ?? [])
 
-  const clauseStats = useTotalClauseCount(documents ?? [])
-
-  const readyCount = documents?.filter((d) => d.status === 'ready').length ?? 0
-  const processingCount = documents?.filter((d) => d.status === 'processing').length ?? 0
-  const recentDocuments = (documents ?? []).slice(0, RECENT_LIMIT)
+  const hasDocuments = (documents?.length ?? 0) > 0
+  const readyCount = documents?.filter((doc) => doc.status === 'ready').length ?? 0
+  const processingCount = documents?.filter((doc) => doc.status === 'processing').length ?? 0
+  const recent = [...(documents ?? [])].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, RECENT_LIMIT)
 
   return (
     <div className="flex flex-col gap-10">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Engineering Standards Workspace</h1>
-        <p className="mt-1 max-w-xl text-muted-foreground">
-          Search, review, and retrieve exact clauses from your engineering standards.
-        </p>
-        <div className="mt-4 flex flex-wrap gap-3">
-          <Button asChild size="lg">
-            <Link to="/documents">
-              <UploadCloud />
-              Upload Standard
-            </Link>
-          </Button>
-          <Button asChild variant="outline" size="lg">
-            <Link to="/search">
-              <FileSearch />
-              Search Standards
-            </Link>
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="Engineering Standards Workspace"
+        description="Search, review, and retrieve exact clauses from your engineering standards."
+        actions={
+          <>
+            <UploadStandardButton size="lg" />
+            <Button asChild variant="outline" size="lg">
+              <Link to="/search">
+                <FileSearch />
+                Search Standards
+              </Link>
+            </Button>
+          </>
+        }
+      />
 
       {isPending && (
-        <p className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="size-4 animate-spin" />
-          Loading workspace…
-        </p>
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4" role="status" aria-label="Loading workspace">
+          {Array.from({ length: 4 }, (_, index) => (
+            <Skeleton key={index} className="h-18.5 w-full" />
+          ))}
+        </div>
       )}
 
       {isError && (
-        <p className="flex items-center gap-2 text-sm text-destructive" role="alert">
-          <AlertCircle className="size-4" />
-          Could not load documents. Is the backend running?
-        </p>
+        <ErrorState
+          message={describeError(error, 'Could not load your standards.')}
+          onRetry={() => refetch()}
+          isRetrying={isRefetching}
+        />
       )}
 
-      {!isPending && !isError && documents && documents.length === 0 && (
-        <Card className="max-w-lg">
+      {!isPending && !isError && !hasDocuments && (
+        <Card className="max-w-xl">
           <CardHeader>
-            <CardTitle className="text-base">What ClausePilot does</CardTitle>
+            <CardTitle className="text-base">Upload your first engineering standard to begin finding clauses with ClausePilot.</CardTitle>
             <CardDescription>
-              Upload an engineering standard as a PDF. ClausePilot extracts its pages and clauses, so you
-              can search and retrieve the exact clause and page you need, with its source reference.
+              ClausePilot extracts each standard's pages and clauses, so you can search for a requirement and open the
+              exact clause, page, and source it came from.
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            <Button asChild>
-              <Link to="/documents">
-                <UploadCloud />
-                Upload your first standard
-              </Link>
-            </Button>
+          <CardContent className="flex flex-col gap-4">
+            <ol className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              {['Upload', 'Index', 'Search', 'Verify source'].map((step, index) => (
+                <li key={step} className="flex items-center gap-2">
+                  {index > 0 && <span aria-hidden="true">→</span>}
+                  <span className="rounded-md bg-muted px-2 py-1 font-medium text-foreground">{step}</span>
+                </li>
+              ))}
+            </ol>
+            <UploadStandardButton label="Upload your first standard" />
           </CardContent>
         </Card>
       )}
 
-      {!isPending && !isError && documents && documents.length > 0 && (
+      {!isPending && !isError && hasDocuments && (
         <>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <SummaryCard icon={FolderOpen} label="Standards" value={String(documents.length)} />
-            <SummaryCard
+          <section aria-label="Summary" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <StatCard icon={BookOpen} label="Standards" value={documents!.length} />
+            <StatCard
               icon={Layers}
               label="Total clauses"
-              value={clauseStats.hasReadyDocs && clauseStats.isLoading ? '…' : String(clauseStats.total)}
+              value={countsPending ? <Loader2 className="size-5 animate-spin text-muted-foreground" /> : total}
             />
-            <SummaryCard icon={CheckCircle2} label="Ready" value={String(readyCount)} />
-            <SummaryCard icon={Loader2} label="Processing" value={String(processingCount)} />
-          </div>
+            <StatCard icon={CheckCircle2} label="Ready" value={readyCount} />
+            <StatCard icon={Loader2} label="Processing" value={processingCount} />
+          </section>
 
-          <div>
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold tracking-tight">Recent standards</h2>
+          <section aria-labelledby="recent-standards-heading" className="flex flex-col gap-3">
+            <div className="flex items-center justify-between gap-4">
+              <h2 id="recent-standards-heading" className="text-lg font-semibold tracking-tight">
+                Recent standards
+              </h2>
               <Button asChild variant="link" size="sm">
-                <Link to="/documents">View all documents</Link>
+                <Link to="/documents">View all standards →</Link>
               </Button>
             </div>
-            <Card className="mt-3">
-              <CardContent className="divide-y divide-border py-0">
-                {recentDocuments.map((doc) => (
-                  <RecentDocumentRow key={doc.id} doc={doc} />
-                ))}
-              </CardContent>
-            </Card>
-          </div>
+            <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border">
+              {recent.map((doc) => (
+                <RecentStandardRow key={doc.id} doc={doc} clauseCount={counts.get(doc.id)} />
+              ))}
+            </ul>
+          </section>
 
-          <div>
-            <h2 className="text-lg font-semibold tracking-tight">Quick actions</h2>
-            <div className="mt-3 grid gap-3 sm:grid-cols-3">
-              <Link to="/documents" className="block">
-                <Card className="h-full transition-colors hover:bg-muted/50">
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2 text-sm">
-                      <UploadCloud className="size-4" />
-                      Upload standard
-                    </CardTitle>
-                    <CardDescription>Add a new PDF for clause extraction.</CardDescription>
-                  </CardHeader>
-                </Card>
-              </Link>
-              <Link to="/search" className="block">
-                <Card className="h-full transition-colors hover:bg-muted/50">
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2 text-sm">
-                      <FileSearch className="size-4" />
-                      Search clauses
-                    </CardTitle>
-                    <CardDescription>Find clauses by number, title, or text.</CardDescription>
-                  </CardHeader>
-                </Card>
-              </Link>
-              <Link to="/documents" className="block">
-                <Card className="h-full transition-colors hover:bg-muted/50">
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2 text-sm">
-                      <FolderOpen className="size-4" />
-                      Browse documents
-                    </CardTitle>
-                    <CardDescription>Review all uploaded standards.</CardDescription>
-                  </CardHeader>
-                </Card>
-              </Link>
+          <section aria-labelledby="quick-actions-heading" className="flex flex-col gap-3">
+            <h2 id="quick-actions-heading" className="text-lg font-semibold tracking-tight">
+              Quick actions
+            </h2>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <QuickAction to="/documents" icon={UploadCloud} title="Upload Standard" description="Add a PDF for clause extraction." />
+              <QuickAction to="/search" icon={FileSearch} title="Search Clauses" description="Find clauses by number, title, or text." />
+              <QuickAction to="/documents" icon={BookOpen} title="Browse Standards" description="Review every uploaded standard." />
             </div>
-          </div>
+          </section>
         </>
       )}
-
-      <Separator />
-      <p className="text-xs text-muted-foreground">Upload → Index → Search → Find the exact clause.</p>
     </div>
   )
 }

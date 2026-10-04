@@ -1,0 +1,60 @@
+# Render Blueprint for a temporary ClausePilot external test deployment.
+#
+# Resources: PostgreSQL (pgvector), FastAPI web service, React static site.
+# Values marked `sync: false` are entered in the Render dashboard and are never
+# stored here. Deploy order matters because the services reference each other:
+#   1. Create the Blueprint. The API starts; set EMBEDDING_API_KEY.
+#   2. Copy the API URL into the static site's VITE_API_BASE_URL, then deploy the site.
+#   3. Copy the site URL into the API's CORS_ORIGINS, then redeploy the API.
+services:
+  - type: web
+    name: clausepilot-api
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install .
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.8"
+      - key: APP_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: clausepilot-db
+          property: connectionString
+      - key: STORAGE_BACKEND
+        value: local
+      - key: CORS_ORIGINS
+        sync: false # https URL of clausepilot-web, for example https://clausepilot-web.onrender.com
+      - key: EMBEDDING_PROVIDER
+        value: openai
+      - key: EMBEDDING_MODEL
+        value: text-embedding-3-small
+      - key: EMBEDDING_DIMENSION
+        value: "1536"
+      - key: EMBEDDING_API_KEY
+        sync: false
+
+  - type: web
+    name: clausepilot-web
+    runtime: static
+    plan: free
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_BASE_URL
+        sync: false # https URL of clausepilot-api, for example https://clausepilot-api.onrender.com
+    routes:
+      # Single-page app: deep links such as /documents/:id must serve index.html.
+      - type: rewrite
+        source: /*
+        destination: /index.html
+
+databases:
+  - name: clausepilot-db
+    databaseName: clausepilot
+    plan: free
+    postgresMajorVersion: "16"

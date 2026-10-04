@@ -1,4 +1,16 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
+// VITE_API_BASE_URL is baked in at build time. Local development falls back to
+// the local FastAPI server; production builds must set it (for example, the
+// deployed API's https URL) and never inherit a localhost address.
+const configuredApiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim()
+
+if (!configuredApiBaseUrl && !import.meta.env.DEV) {
+  console.error('VITE_API_BASE_URL is not set. API requests will fail in this build.')
+}
+
+export const API_BASE_URL = (configuredApiBaseUrl || (import.meta.env.DEV ? 'http://localhost:8000' : '')).replace(
+  /\/$/,
+  ''
+)
 
 export class ApiError extends Error {
   status: number
@@ -45,6 +57,21 @@ async function request<TResponse>(path: string, options: RequestOptions = {}): P
   }
 
   return (await response.json()) as TResponse
+}
+
+/**
+ * Turns any thrown value into a sentence a person can act on.
+ * A `fetch` rejection (backend down, CORS, DNS) surfaces as a TypeError, so it
+ * gets its own message instead of the generic fallback.
+ */
+export function describeError(error: unknown, fallback: string) {
+  if (error instanceof ApiError) {
+    return error.message
+  }
+  if (error instanceof TypeError) {
+    return 'Cannot reach the ClausePilot API. Check that the backend is running.'
+  }
+  return fallback
 }
 
 export const apiClient = {

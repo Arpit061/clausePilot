@@ -7,7 +7,8 @@ from app.db.repositories.documents import add_pages, create_document, mark_faile
 from app.services.ingestion.clause_extractor import extract_clauses
 from app.services.ingestion.pdf_parser import PdfParseError, extract_pages
 from app.services.llm.embeddings import EmbeddingProviderError, build_embedding_text, get_embedding_provider
-from app.utils.files import build_stored_path, sanitize_filename, write_upload
+from app.services.storage import get_file_storage
+from app.utils.files import sanitize_filename
 
 
 class UnsupportedFileTypeError(Exception):
@@ -27,19 +28,20 @@ def process_upload(session: Session, *, filename: str, content_type: str, conten
             f"File exceeds the maximum allowed size of {settings.MAX_UPLOAD_SIZE_BYTES} bytes."
         )
 
-    stored_path = build_stored_path(settings.UPLOAD_DIR, filename)
-    write_upload(stored_path, content)
+    storage = get_file_storage()
+    stored_key = storage.save(filename, content)
 
     document = create_document(
         session,
         filename=sanitize_filename(filename),
-        stored_path=str(stored_path),
+        stored_path=stored_key,
         content_type=content_type,
         size_bytes=len(content),
     )
 
     try:
-        pages = extract_pages(stored_path)
+        with storage.open_local(stored_key) as local_file:
+            pages = extract_pages(local_file)
     except PdfParseError as exc:
         mark_failed(session, document, str(exc))
         return document
