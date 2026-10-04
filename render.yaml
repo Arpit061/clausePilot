@@ -3,7 +3,7 @@
 # Resources: PostgreSQL (pgvector), FastAPI web service, React static site.
 # Values marked `sync: false` are entered in the Render dashboard and are never
 # stored here. Deploy order matters because the services reference each other:
-#   1. Create the Blueprint. The API starts; set EMBEDDING_API_KEY.
+#   1. Create the Blueprint. The API starts.
 #   2. Copy the API URL into the static site's VITE_API_BASE_URL, then deploy the site.
 #   3. Copy the site URL into the API's CORS_ORIGINS, then redeploy the API.
 services:
@@ -28,14 +28,13 @@ services:
         value: local
       - key: CORS_ORIGINS
         sync: false # https URL of clausepilot-web, for example https://clausepilot-web.onrender.com
+      # Deterministic development embeddings (no API key, no billing). Semantic and
+      # hybrid search run, but their vectors are not meaningful; keyword search is
+      # the reliable mode in this deployment. Dimension must stay 1536.
       - key: EMBEDDING_PROVIDER
-        value: openai
-      - key: EMBEDDING_MODEL
-        value: text-embedding-3-small
+        value: fake
       - key: EMBEDDING_DIMENSION
         value: "1536"
-      - key: EMBEDDING_API_KEY
-        sync: false
 
   - type: web
     name: clausepilot-web
